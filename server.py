@@ -423,7 +423,7 @@ class LanChatServer:
 
     async def peer_reaper(self):
         """Limpiar peers caídos periódicamente y enviar notificaciones."""
-        known_peers = set()  # Para detectar nuevos peers la primera vez
+        known_peers = set(self.peers.keys())  # Inicializar con peers existentes
         while True:
             await asyncio.sleep(DISCOVERY_INTERVAL)
             now = time.time()
