@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LanChat</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar izquierda -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h1>LanChat</h1>
+                <span class="user-badge" id="currentUser"></span>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-title">Online</div>
+                <ul class="peers-list" id="peersList">
+                    <li class="empty-state">Buscando peers...</li>
+                </ul>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-title">Chats activos</div>
+                <ul class="chats-list" id="chatsList">
+                    <li class="empty-state">Sin chats</li>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- Área principal de chat -->
+        <main class="chat-main" id="chatMain">
+            <!-- Vista sin chat seleccionado -->
+            <div class="no-chat-view" id="noChatView">
+                <div class="no-chat-icon">💬</div>
+                <h2>LanChat</h2>
+                <p>Selecciona un peer para iniciar una conversación</p>
+            </div>
+
+            <!-- Vista de chat activo -->
+            <div class="chat-view hidden" id="chatView">
+                <header class="chat-header" id="chatHeader">
+                    <span class="peer-name" id="chatPeerName"></span>
+                    <span class="peer-status" id="chatPeerStatus"></span>
+                </header>
+
+                <div class="messages-container" id="messagesContainer">
+                    <!-- Los mensajes se insertan aquí dinámicamente -->
+                </div>
+
+                <div class="input-area">
+                    <div class="attachment-bar" id="attachmentBar"></div>
+                    <form class="message-form" id="messageForm">
+                        <label for="fileInput" class="attach-btn" title="Adjuntar archivo o imagen">
+                            📎
+                        </label>
+                        <input type="file" id="fileInput" multiple hidden>
+                        <textarea
+                            class="message-input"
+                            id="messageInput"
+                            placeholder="Escribe un mensaje..."
+                            rows="1"
+                        ></textarea>
+                        <button type="submit" class="send-btn" title="Enviar">
+                            ➤
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </main>
+
+        <!-- Notificación toast -->
+        <div class="toast hidden" id="toast"></div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
