@@ -134,6 +134,14 @@ El servidor sirve automáticamente la webapp estática desde `/webapp/`.
 
 ---
 
+## 📌 Próximos pendientes
+
+- [ ] Poder limpiar conversación
+- [ ] Detectar cuando un peer se desconecta
+- [ ] Agregar scroll al chat (no tiene scroll)
+
+---
+
 ## 🔜 Fase 2 (planificado)
 
 - [ ] Canal de texto encriptado básico
