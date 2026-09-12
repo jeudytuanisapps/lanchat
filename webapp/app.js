@@ -31,6 +31,7 @@
         chatPeerName:      $('#chatPeerName'),
         chatPeerStatus:    $('#chatPeerStatus'),
         messagesContainer: $('#messagesContainer'),
+        clearChatBtn:      $('#clearChatBtn'),
         messageForm:       $('#messageForm'),
         messageInput:      $('#messageInput'),
         fileInput:         $('#fileInput'),
@@ -137,9 +138,11 @@
         }
         state.messageHistory[chatKey].push(msg);
 
-        // Si estoy viendo esa conversación, mostrar en pantalla
+        // Si estoy viendo esa conversación, mostrar en pantalla y marcar leído
         if (state.activeChat === chatKey) {
             renderMessage(msg);
+            markAsRead(chatKey);
+            if (!scrollLocked) scrollToBottom(true);  // Auto-scroll suave si no está scrolleando arriba
         } else if (!isMine) {
             // Notificación toast si no estoy en el chat activo
             showToast(`📩 Nuevo mensaje de ${msg.from}`);
@@ -205,6 +208,23 @@
         });
     }
 
+    // Contador de mensajes no leídos por chat
+    const unreadIndex = {};  // { peerName: último índice leído }
+
+    function getUnreadCount(peerName) {
+        const history = state.messageHistory[peerName] || [];
+        const lastRead = unreadIndex[peerName] || -1;
+        return Math.max(0, history.length - 1 - lastRead);
+    }
+
+    function markAsRead(peerName) {
+        const history = state.messageHistory[peerName];
+        if (history && history.length > 0) {
+            unreadIndex[peerName] = history.length - 1;
+        }
+        renderActiveChats();
+    }
+
     // ============================================================
     // Gestión de chats
     // ============================================================
@@ -237,8 +257,9 @@
             els.chatPeerStatus.textContent = '';
         }
 
-        // Cargar mensajes del historial
+        // Cargar mensajes del historial y marcar como leído
         renderHistory(peerName);
+        markAsRead(peerName);
     }
 
     function renderActiveChats() {
@@ -252,9 +273,12 @@
         let html = '';
         for (const name of names) {
             const isActive = state.activeChat === name;
+            const unread = getUnreadCount(name);
+            const badgeHtml = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
             html += `<li class="${isActive ? 'active' : ''}">`;
             html += `<span class="status-dot"></span>`;
             html += `<span class="chat-name-text">${escHtml(name)}</span>`;
+            html += badgeHtml;
             html += `</li>`;
         }
         els.chatsList.innerHTML = html;
@@ -272,8 +296,39 @@
     }
 
     // ============================================================
-    // Renderizado de mensajes
+    // Limpiar conversación (solo local)
     // ============================================================
+
+    function clearConversation() {
+        if (!state.activeChat) return;
+
+        // Limpiar historial en memoria solo para este peer
+        delete state.messageHistory[state.activeChat];
+
+        // Limpiar mensajes visuales y hacer scroll arriba
+        els.messagesContainer.innerHTML = '<p style="text-align:center; color:#7a7c85;">Inicia una conversación</p>';
+        scrollToBottom(false);  // Snap sin animación para volver al inicio
+
+        showToast('🗑️ Conversación limpiada (solo local)');
+    }
+
+    // Evento del botón limpiar
+    els.clearChatBtn.addEventListener('click', function () {
+        if (!state.activeChat) return;
+
+        const peerName = state.activeChat;
+
+        // Confirmar antes de limpiar
+        const confirmed = confirm(`¿Limpiar la conversación con ${peerName}?\nSolo se borra localmente, tu peer seguirá viendo sus mensajes.`);
+
+        if (confirmed) {
+            clearConversation();
+        }
+    });
+
+    // ============================================================
+    // Renderizado de mensajes
+    // ============
 
     function renderHistory(peerName) {
         const messages = state.messageHistory[peerName] || [];
@@ -394,6 +449,9 @@
         const text = els.messageInput.value.trim();
         if (!text && pendingFiles.length === 0) return;
 
+        // Bloquear auto-scroll para forzar scroll al final después de enviar
+        scrollLocked = true;
+
         // Enviar texto
         if (text) {
             const sent = sendMessage({ to: state.activeChat, type: 'text', text: text });
@@ -421,6 +479,12 @@
         els.messageInput.style.height = 'auto';
         pendingFiles = [];
         renderAttachmentBar();
+
+        // Forzar scroll al final y desbloquear después de 2s (si no se envió más nada)
+        scrollToBottom(true);
+        setTimeout(function () {
+            scrollLocked = false;
+        }, 2000);
     });
 
     // Auto-resize textarea
@@ -497,12 +561,32 @@
     // Utilidades
     // ============================================================
 
-    function scrollToBottom() {
+    let scrollLocked = false;  // true cuando se envió un mensaje
+
+    function scrollToBottom(smooth) {
         const container = els.messagesContainer;
+        if (smooth === undefined) smooth = true;
+
         requestAnimationFrame(function () {
-            container.scrollTop = container.scrollHeight;
+            if (smooth && window.CSS && CSS.supports('scroll-behavior', 'smooth')) {
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: 'smooth'
+                });
+            } else {
+                container.scrollTop = container.scrollHeight;
+            }
         });
     }
+
+    // Desbloquear scroll cuando el usuario hace scroll manual hacia abajo
+    els.messagesContainer.addEventListener('scroll', function () {
+        const { scrollTop, scrollHeight, clientHeight } = this;
+        // Si está cerca del final (20px de margen), desbloquea auto-scroll
+        if (scrollHeight - scrollTop - clientHeight < 30) {
+            scrollLocked = false;
+        }
+    });
 
     function showToast(msg) {
         els.toast.textContent = msg;
