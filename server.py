@@ -78,17 +78,11 @@ class LanChatServer:
         runner = web.AppRunner(self.app)
         await runner.setup()
 
-        # Configurar HTTP
+        # Todo en un solo puerto (HTTP + WebSocket integrado)
+        self.runner = runner
         site_http = web.TCPSite(runner, '0.0.0.0', HTTP_PORT)
         await site_http.start()
-        print(f"🌐 HTTP server: http://localhost:{HTTP_PORT}")
-
-        # Configurar WebSocket en puerto separado
-        ws_runner = web.AppRunner(self.app)
-        await ws_runner.setup()
-        self.ws_site = web.TCPSite(ws_runner, '0.0.0.0', WS_PORT)
-        await self.ws_site.start()
-        print(f"🔌 WebSocket server: ws://localhost:{WS_PORT}")
+        print(f"🌐 Servidor: http://localhost:{HTTP_PORT}  (WS incluido)")
 
         # Announce ourselves immediately
         await self.udp_announce_once()
@@ -98,10 +92,10 @@ class LanChatServer:
 
     async def stop(self):
         """Detener el servidor."""
-        if self.udp_task:
+        if hasattr(self, 'udp_task') and self.udp_task:
             self.udp_task.cancel()
         try:
-            await self.ws_site.stop()
+            await self.runner.cleanup()
         except Exception:
             pass
         print("\n🛑 Server detenido.")

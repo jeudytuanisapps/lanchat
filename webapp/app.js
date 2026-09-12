@@ -1,9 +1,12 @@
 /* ============================================================
-   LanChat - Frontend Webapp
+   LanChat - Frontend Webapp (v1.0)
    ============================================================ */
 
 (function () {
     'use strict';
+
+    // --- Constantes ---
+    const PORT = 8765;
 
     // --- Estado de la app ---
     const state = {
@@ -12,7 +15,7 @@
         peers: {},            // { peerName: data }
         activeChat: null,     // nombre del peer con el que chateo ahora
         ws: null,             // WebSocket al servidor local
-        messageHistory: {}    // { peerName: [msg1, msg2, ...] }
+        messageHistory: {}    // { peerName: [msg1, msg2, ...] }, ordenados por timestamp
     };
 
     // --- Elementos DOM ---
@@ -20,21 +23,23 @@
     const $$ = (sel) => document.querySelectorAll(sel);
 
     const els = {
-        currentUser: $('#currentUser'),
-        peersList:   $('#peersList'),
-        chatsList:   $('#chatsList'),
-        noChatView:  $('#noChatView'),
-        chatView:    $('#chatView'),
-        chatHeader:  $('#chatHeader'),
-        chatPeerName:$('#chatPeerName'),
-        chatPeerStatus:$('#chatPeerStatus'),
+        currentUser:       $('#currentUser'),
+        peersList:         $('#peersList'),
+        chatsList:         $('#chatsList'),
+        noChatView:        $('#noChatView'),
+        chatView:          $('#chatView'),
+        chatPeerName:      $('#chatPeerName'),
+        chatPeerStatus:    $('#chatPeerStatus'),
         messagesContainer: $('#messagesContainer'),
-        messageForm:   $('#messageForm'),
-        messageInput:  $('#messageInput'),
-        fileInput:     $('#fileInput'),
-        attachmentBar: $('#attachmentBar'),
-        toast:         $('#toast')
+        messageForm:       $('#messageForm'),
+        messageInput:      $('#messageInput'),
+        fileInput:         $('#fileInput'),
+        attachmentBar:     $('#attachmentBar'),
+        toast:             $('#toast')
     };
+
+    // --- Archivos pendientes de envío ---
+    let pendingFiles = [];
 
     // ============================================================
     // Inicialización
@@ -45,13 +50,13 @@
         state.myName = hostname;
         els.currentUser.textContent = `🖥️ ${hostname}`;
 
-        // Conectar WebSocket al servidor local
+        // Conectar WebSocket al servidor local (mismo puerto)
         connectWebSocket();
 
         // Obtener lista de peers
-        refreshPeers();
+        await refreshPeers();
 
-        // Intervalo para refrescar peers cada 5 segundos
+        // Refrescar peers cada 5 segundos
         setInterval(refreshPeers, 5000);
     }
 
@@ -66,7 +71,7 @@
     // ============================================================
 
     function connectWebSocket() {
-        const wsUrl = `ws://${window.location.hostname}:8766`;
+        const wsUrl = `ws://${window.location.host}/ws`;
 
         try {
             state.ws = new WebSocket(wsUrl);
@@ -76,7 +81,7 @@
         }
 
         state.ws.onopen = function () {
-            console.log('✅ Conectado al servidor WebSocket');
+            console.log('✅ Conectado al servidor');
         };
 
         state.ws.onmessage = function (event) {
@@ -89,8 +94,9 @@
         };
 
         state.ws.onclose = function () {
-            console.log('❌ Desconectado del WebSocket');
-            setTimeout(connectWebSocket, 3000); // Reintentar
+            console.log('❌ Desconectado del servidor');
+            // Reintentar después de 3 segundos
+            setTimeout(connectWebSocket, 3000);
         };
 
         state.ws.onerror = function (err) {
@@ -121,35 +127,19 @@
     }
 
     function handleMessage(msg) {
-        // Mensaje local: propio envío
-        if (msg.from === state.myName && msg.type === 'message') {
-            if (!state.messageHistory[msg.from]) {
-                state.messageHistory[msg.from] = [];
-            }
-            state.messageHistory[msg.from].push(msg);
-
-            // Si estoy chateando con esta persona, mostrar en pantalla
-            if (state.activeChat === msg.from) {
-                renderMessage(msg, true);
-                scrollToBottom();
-            }
+        const from = msg.from;
+        if (!state.messageHistory[from]) {
+            state.messageHistory[from] = [];
         }
-        // Mensaje recibido de otro peer
-        else if (msg.type === 'message') {
-            const from = msg.from;
+        state.messageHistory[from].push(msg);
 
-            if (!state.messageHistory[from]) {
-                state.messageHistory[from] = [];
-            }
-            state.messageHistory[from].push(msg);
-
+        // Si estoy chateando con esta persona, mostrar en pantalla
+        if (state.activeChat === from) {
             renderMessage(msg, false);
             scrollToBottom();
-
+        } else {
             // Notificación toast si no estoy en el chat activo
-            if (state.activeChat !== from) {
-                showToast(`📩 Nuevo mensaje de ${from}`);
-            }
+            showToast(`📩 Nuevo mensaje de ${from}`);
         }
     }
 
@@ -259,7 +249,7 @@
         }
         els.chatsList.innerHTML = html;
 
-        // Eventos click
+        // Eventos click en chats activos
         $$('.chats-list li').forEach(function (li) {
             const textEl = li.querySelector('.chat-name-text');
             if (textEl) {
@@ -278,19 +268,19 @@
     function renderHistory(peerName) {
         const messages = state.messageHistory[peerName] || [];
 
-        if (messages.length === 0 && !state.activeChat) {
+        if (messages.length === 0) {
             els.messagesContainer.innerHTML = '<p style="text-align:center; color:#7a7c85;">Inicia una conversación</p>';
             return;
         }
 
         let html = '';
+        const startIdx = Math.max(0, messages.length - 20); // Últimos 20 mensajes
 
-        for (let i = Math.max(0, messages.length - 20); i < messages.length; i++) {
+        for (let i = startIdx; i < messages.length; i++) {
             const msg = messages[i];
             if (!msg || !msg.data) continue;
 
-            const isSent = msg.from === state.myName;
-            html += createMessageHTML(msg, isSent);
+            html += createMessageHTML(msg);
         }
 
         els.messagesContainer.innerHTML = html;
@@ -309,10 +299,10 @@
     }
 
     function renderMessage(msg, isSent) {
-        const html = createMessageHTML(msg, isSent);
+        const html = createMessageHTML(msg);
         els.messagesContainer.insertAdjacentHTML('beforeend', html);
 
-        // Re-attach click events for images
+        // Re-attach click events para imágenes
         const newMsgEl = els.messagesContainer.lastElementChild;
         if (newMsgEl) {
             const img = newMsgEl.querySelector('img');
@@ -329,7 +319,7 @@
         scrollToBottom();
     }
 
-    function createMessageHTML(msg, isSent) {
+    function createMessageHTML(msg) {
         const sender = msg.from;
         const ts = new Date(msg.timestamp);
         const timeStr = padZero(ts.getHours()) + ':' + padZero(ts.getMinutes());
@@ -343,22 +333,22 @@
                 break;
 
             case 'image':
-                if (data.base64) {
-                    content = `<img src="${data.base64}" alt="Imagen" loading="lazy">`;
-                    if (data.caption && data.caption !== '') {
+                if (data.base64 && data.base64 !== '' && data.base64.indexOf('...[truncated]') === -1) {
+                    content = `<img src="${escAttr(data.base64)}" alt="Imagen">`;
+                    if (data.caption) {
                         content += `<div class="meta">${escHtml(data.caption)}</div>`;
                     }
                 } else if (data.fileName) {
-                    content = `<a class="file-attachment" href="/static/uploads/${data.fileName}" download="${escAttr(data.fileName)}">📎 ${escHtml(data.fileName)}</a>`;
+                    content = `<a class="file-attachment" href="#" onclick="return false;">📎 ${escHtml(data.fileName)} (${(data.size || 0)/1024|0} KB)</a>`;
                 }
                 content = '<div class="bubble">' + content + '</div>';
                 break;
 
             case 'file':
-                if (data.base64) {
-                    content = `<a class="file-attachment" href="${data.base64}" download="${escAttr(data.fileName)}">📄 ${escHtml(data.fileName)}</a>`;
+                if (data.base64 && data.base64 !== '' && data.base64.indexOf('...[truncated]') === -1) {
+                    content = `<a class="file-attachment" href="${escAttr(data.base64)}" download="${escAttr(data.fileName)}">📄 ${escHtml(data.fileName)}</a>`;
                 } else if (data.fileName) {
-                    content = `<a class="file-attachment" href="/static/uploads/${data.fileName}" download="${escAttr(data.fileName)}">📎 ${escHtml(data.fileName)}</a>`;
+                    content = `<a class="file-attachment" href="#" onclick="return false;">📎 ${escHtml(data.fileName)}</a>`;
                 }
                 content = '<div class="bubble">' + content + '</div>';
                 break;
@@ -367,6 +357,7 @@
                 content = `<div class="bubble">Mensaje desconocido</div>`;
         }
 
+        const isSent = (sender === state.myName);
         const sentClass = isSent ? 'sent' : 'received';
         let senderLine = '';
 
@@ -374,15 +365,15 @@
             senderLine = `<div class="msg-sender">${escHtml(sender)}</div>`;
         }
 
-        return `<div class="message ${sentClass}">` +
+        return '<div class="message ' + sentClass + '">' +
                senderLine +
                content +
-               `<div class="meta">${timeStr}</div>` +
-           `</div>`;
+               '<div class="meta">' + timeStr + '</div>' +
+           '</div>';
     }
 
     // ============================================================
-    // Envío de mensajes
+    // Envío de mensajes y archivos
     // ============================================================
 
     els.messageForm.addEventListener('submit', function (e) {
@@ -391,47 +382,33 @@
         if (!state.activeChat) return;
 
         const text = els.messageInput.value.trim();
-        if (!text && !pendingFiles.length) return;
+        if (!text && pendingFiles.length === 0) return;
 
         // Enviar texto
         if (text) {
-            sendMessage({
-                to: state.activeChat,
-                type: 'text',
-                text: text
-            });
+            sendMessage({ to: state.activeChat, type: 'text', text: text });
         }
 
-        // Archivos pendientes
+        // Enviar archivos
         for (let i = 0; i < pendingFiles.length; i++) {
             const fileData = pendingFiles[i];
-            sendMessage({
-                to: state.activeChat,
-                type: 'image',
-                base64: fileData.base64.substring(0, 20) + '...[truncated]',
-                caption: fileData.fileName,
-                fileName: fileData.fileName
-            });
-        }
-
-        // Limpiar input y archivos
-        els.messageInput.value = '';
-        pendingFiles = [];
-        renderAttachmentBar();
-
-        // Si es imagen, también enviar versión completa
-        for (let i = 0; i < pendingFiles.length; i++) {
-            const fileData = pendingFiles[i];
-            if (fileData.base64 && fileData.mimeType && fileData.mimeType.startsWith('image/')) {
+            if (fileData.base64 && fileData.mimeType) {
                 sendMessage({
                     to: state.activeChat,
                     type: 'image',
                     base64: fileData.base64,
                     caption: fileData.fileName,
-                    fileName: fileData.fileName
+                    fileName: fileData.fileName,
+                    size: fileData.size
                 });
             }
         }
+
+        // Limpiar input y archivos
+        els.messageInput.value = '';
+        els.messageInput.style.height = 'auto';
+        pendingFiles = [];
+        renderAttachmentBar();
     });
 
     // Auto-resize textarea
@@ -440,7 +417,7 @@
         this.style.height = Math.min(this.scrollHeight, 120) + 'px';
     });
 
-    // Enter para enviar (sin Shift+Enter que es nueva línea)
+    // Enter para enviar (Shift+Enter = nueva línea)
     els.messageInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -452,15 +429,13 @@
     // Archivos / Adjuntos
     // ============================================================
 
-    let pendingFiles = [];
-
     els.fileInput.addEventListener('change', function (e) {
         const files = Array.from(e.target.files);
 
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
 
-            // Limpiar nombre
+            // Limpiar nombre del archivo
             const safeName = sanitizeFileName(file.name);
 
             if (file.size > 5 * 1024 * 1024) {
@@ -489,14 +464,14 @@
         let html = '';
         for (let i = 0; i < pendingFiles.length; i++) {
             const f = pendingFiles[i];
-            html += `<div class="attachment-item">`;
-            html +=   `<span>${f.fileName}</span>`;
-            html +=   `<span class="remove-file" data-index="${i}">✕</span>`;
-            html += `</div>`;
+            html += '<div class="attachment-item">';
+            html += '  <span>' + escHtml(f.fileName) + '</span>';
+            html += '  <span class="remove-file" data-index="' + i + '">✕</span>';
+            html += '</div>';
         }
         els.attachmentBar.innerHTML = html;
 
-        // Botones eliminar
+        // Botones eliminar archivos
         $$('.attachment-item .remove-file').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 const idx = parseInt(this.getAttribute('data-index'));
