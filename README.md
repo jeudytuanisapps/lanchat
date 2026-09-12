@@ -144,7 +144,8 @@ El servidor sirve automáticamente la webapp estática desde `/webapp/`.
 
 ## 🔜 Fase 2 (planificado)
 
-- [ ] Historial en localstorage
+- [x] Historial en localstorage
+- [ ] Revisar límites de historial (rotación, tamaño máximo)
 - [ ] Notificaciones desktop
 - [ ] Compartir archivos grandes con chunking
 - [ ] Reacciones/emoji
