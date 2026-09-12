@@ -18,6 +18,11 @@
         messageHistory: {}    // { peerName: [msg1, msg2, ...] }, ordenados por timestamp
     };
 
+    // --- localStorage keys ---
+    const LS_KEY_PREFIX = 'lanchat_history_';
+    const LS_MAX_MESSAGES_IMAGE = 50;   // Máx mensajes con imagen por chat
+    const LS_MAX_MESSAGES_TEXT = 100;   // Máx mensajes sin imagen por chat
+
     // --- Elementos DOM ---
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
@@ -42,11 +47,79 @@
     // --- Archivos pendientes de envío ---
     let pendingFiles = [];
 
+    let saveTimeout = null;
+
+    function scheduleSave(peerName, messages) {
+        // Throttling: esperar 1s antes de escribir a localStorage para no saturar
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(function() {
+            savePeerHistory(peerName, messages);
+            saveTimeout = null;
+        }, 1000);
+    }
+
+    function saveAndTrimHistory(peerName, messages) {
+        // Determinar si el historial tiene mensajes con imagen
+        const hasImages = messages.some(function(m) {
+            return m.data && (m.data.type === 'image' || m.data.type === 'file');
+        });
+        const maxMsgs = hasImages ? LS_MAX_MESSAGES_IMAGE : LS_MAX_MESSAGES_TEXT;
+
+        // Limitar cantidad de mensajes
+        if (messages.length > maxMsgs) {
+            messages = messages.slice(messages.length - maxMsgs);
+            state.messageHistory[peerName] = messages;
+        }
+
+        scheduleSave(peerName, messages);
+    }
+
+    function getHistoryKey(peerName) {
+        return LS_KEY_PREFIX + btoa(unescape(encodeURIComponent(peerName)));
+    }
+
+    function savePeerHistory(peerName, messages) {
+        try {
+            const key = getHistoryKey(peerName);
+            // Guardar solo los campos necesarios para ahorrar espacio
+            const trimmed = messages.map(function(m) {
+                return { from: m.from, to: m.to, timestamp: m.timestamp, data: m.data };
+            });
+            localStorage.setItem(key, JSON.stringify(trimmed));
+        } catch (e) {
+            console.warn('No se pudo guardar en localStorage:', e);
+        }
+    }
+
+    function loadPeerHistory(peerName) {
+        try {
+            const key = getHistoryKey(peerName);
+            const raw = localStorage.getItem(key);
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (e) {
+            console.warn('No se pudo leer de localStorage:', e);
+            return null;
+        }
+    }
+
+    function removePeerHistory(peerName) {
+        try {
+            const key = getHistoryKey(peerName);
+            localStorage.removeItem(key);
+        } catch (e) {
+            console.warn('No se pudo eliminar de localStorage:', e);
+        }
+    }
+
     // ============================================================
     // Inicialización
     // ============================================================
 
     async function init() {
+        // Cargar historial desde localStorage antes de mostrar nada
+        loadAllHistory();
+
         // Identidad y peers vienen del servidor local
         await refreshPeers();
 
@@ -55,6 +128,22 @@
 
         // Refrescar peers cada 5 segundos
         setInterval(refreshPeers, 5000);
+    }
+
+    function loadAllHistory() {
+        const prefix = LS_KEY_PREFIX;
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!key || !key.startsWith(prefix)) continue;
+            try {
+                const raw = localStorage.getItem(key);
+                const peerName = decodeURIComponent(escape(atob(key.slice(prefix.length))));
+                const messages = JSON.parse(raw);
+                state.messageHistory[peerName] = messages;
+            } catch (e) {
+                console.warn('Error cargando historial de', key, ':', e);
+            }
+        }
     }
 
     // ============================================================
@@ -143,6 +232,9 @@
             state.messageHistory[chatKey] = [];
         }
         state.messageHistory[chatKey].push(msg);
+
+        // Persistir a localStorage (limitar cantidad)
+        saveAndTrimHistory(chatKey, state.messageHistory[chatKey]);
 
         // Si estoy viendo esa conversación, mostrar en pantalla y marcar leído
         if (state.activeChat === chatKey) {
@@ -330,14 +422,17 @@
     function clearConversation() {
         if (!state.activeChat) return;
 
-        // Limpiar historial en memoria solo para este peer
-        delete state.messageHistory[state.activeChat];
+        const peerName = state.activeChat;
+
+        // Limpiar historial en memoria y localStorage
+        delete state.messageHistory[peerName];
+        removePeerHistory(peerName);
 
         // Limpiar mensajes visuales y hacer scroll arriba
         els.messagesContainer.innerHTML = '<p style="text-align:center; color:#7a7c85;">Inicia una conversación</p>';
         scrollToBottom(false);  // Snap sin animación para volver al inicio
 
-        showToast('🗑️ Conversación limpiada (solo local)');
+        showToast('🗑️ Conversación limpiada');
     }
 
     // Evento del botón limpiar
