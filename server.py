@@ -85,8 +85,8 @@ class LanChatServer:
 
         # Configurar WebSocket en puerto separado
         ws_runner = web.AppRunner(self.app)
-        self.ws_site = web.TCPSite(ws_runner, '0.0.0.0', WS_PORT)
         await ws_runner.setup()
+        self.ws_site = web.TCPSite(ws_runner, '0.0.0.0', WS_PORT)
         await self.ws_site.start()
         print(f"🔌 WebSocket server: ws://localhost:{WS_PORT}")
 
@@ -290,9 +290,8 @@ async def main():
     server = LanChatServer()
     try:
         await server.start()
-        # Mantener el servidor corriendo
-        loop = asyncio.get_event_loop()
-        await loop.run_forever()
+        # Mantener el servidor corriendo (event loop en espera)
+        await asyncio.Event().wait()
     except KeyboardInterrupt:
         print("\n")
     finally:
@@ -300,11 +299,18 @@ async def main():
 
 
 if __name__ == '__main__':
+    # Configurar UTF-8 en stdout/stderr para Windows
+    import sys as _sys
+    if hasattr(_sys.stdout, 'reconfigure'):
+        _sys.stdout.reconfigure(encoding='utf-8')
+    if hasattr(_sys.stderr, 'reconfigure'):
+        _sys.stderr.reconfigure(encoding='utf-8')
+
     # Instalar dependencias si no existen: pip install aiohttp websockets
     try:
         import aiohttp
     except ImportError:
-        print("⚠️  Instalando dependencia necesaria...")
+        print("Instalando dependencia necesaria...")
         os.system('pip install aiohttp')
         import aiohttp
 
