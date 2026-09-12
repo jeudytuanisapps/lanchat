@@ -137,7 +137,7 @@ El servidor sirve automáticamente la webapp estática desde `/webapp/`.
 ## 📌 Próximos pendientes
 
 - [x] ✅ Poder limpiar conversación (solo local, con badge de no leídos)
-- [ ] Detectar cuando un peer se desconecta
+- [x] ✅ Detectar cuando un peer se desconecta (toast automático verde/rojo)
 - [x] ✅ Agregar scroll al chat (auto-scroll suave + comportamiento inteligente)
 
 ---

@@ -121,6 +121,12 @@
     }
 
     function handleMessage(msg) {
+        // Notificaciones de estado de peer (conexión/desconexión)
+        if (msg.type === 'peer_status') {
+            handlePeerStatus(msg);
+            return;
+        }
+
         // Avisos del servidor (ej: no se pudo entregar al peer)
         if (msg.type === 'delivery_error') {
             showToast(`⚠️ No se entregó a ${msg.to}: ${msg.error}`);
@@ -293,6 +299,28 @@
                 });
             }
         });
+    }
+
+    // ============================================================
+    // Manejo de estado de peers (conexión/desconexión)
+    // ============================================================
+
+    function handlePeerStatus(msg) {
+        const peerName = msg.name;
+        const status = msg.status;  // 'connected' | 'disconnected'
+
+        if (status === 'connected') {
+            showToast(`🟢 ${peerName} se conectó`, '#5e9a4b');
+        } else if (status === 'disconnected') {
+            showToast(`🔴 ${peerName} se desconectó`, '#c74646');
+
+            // Si el chat activo era este peer, limpiar su vista
+            if (state.activeChat === peerName) {
+                els.messagesContainer.innerHTML =
+                    '<p style="text-align:center; color:#7a7c85;">Peer desconectado</p>';
+                scrollToBottom(false);
+            }
+        }
     }
 
     // ============================================================
@@ -588,9 +616,12 @@
         }
     });
 
-    function showToast(msg) {
+    function showToast(msg, bgColor) {
         els.toast.textContent = msg;
         els.toast.classList.remove('hidden');
+
+        // Color dinámico (default: verde para notificaciones generales)
+        els.toast.style.backgroundColor = bgColor || '#5e9a4b';
 
         // Resetear animación
         els.toast.style.animation = 'none';

@@ -392,27 +392,56 @@ class LanChatServer:
             ip = sender_ip
         msg['ip'] = ip
 
+        was_new = peer_name not in self.peers
         if peer_name in self.peers:
             self.peers[peer_name].update(msg)
         else:
             self.peers[peer_name] = Peer(
                 peer_name, ip, msg.get('port', HTTP_PORT), msg.get('instance_id')
             )
-            print("🟢 Peer descubierto: {} ({})".format(peer_name, ip))
 
-    def purge_stale_peers(self):
+        if peer_name not in self.peers:
+            # Nueva conexión (se notificará en el próximo reaper cycle)
+            pass
+        else:
+            # Reapareció después de estar caído (opcional)
+            pass
+
+    async def notify_peer_status(self, peer_name, status):
+        """Enviar notificación de estado de peer a todos los navegadores locales."""
+        msg = {'type': 'peer_status', 'name': peer_name, 'status': status}
+        await self.deliver_local(msg)
+
+    async def purge_stale_peers(self):
         """Olvidar peers que dejaron de anunciarse."""
         now = time.time()
         stale = [n for n, p in self.peers.items() if now - p.last_seen > PEER_TIMEOUT]
         for name in stale:
             del self.peers[name]
             print("🔴 Peer desconectado: {}".format(name))
+            await self.notify_peer_status(name, 'disconnected')
 
     async def peer_reaper(self):
-        """Limpiar peers caídos periódicamente."""
+        """Limpiar peers caídos periódicamente y enviar notificaciones."""
+        known_peers = set()  # Para detectar nuevos peers la primera vez
         while True:
             await asyncio.sleep(DISCOVERY_INTERVAL)
-            self.purge_stale_peers()
+            now = time.time()
+            stale = [n for n, p in self.peers.items() if now - p.last_seen > PEER_TIMEOUT]
+            for name in stale:
+                if name not in known_peers:
+                    continue  # Aún no había sido notificado
+                del self.peers[name]
+                print("🔴 Peer desconectado: {}".format(name))
+                await self.notify_peer_status(name, 'disconnected')
+            
+            # Detectar nuevos peers y enviar notificación
+            for name in set(self.peers.keys()):
+                if name not in known_peers:
+                    known_peers.add(name)
+                    print("🟢 Peer descubierto: {} ({})".format(
+                        self.peers[name].name, self.peers[name].ip))
+                    await self.notify_peer_status(name, 'connected')
 
 
 async def main():
