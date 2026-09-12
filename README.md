@@ -144,11 +144,9 @@ El servidor sirve automáticamente la webapp estática desde `/webapp/`.
 
 ## 🔜 Fase 2 (planificado)
 
-- [ ] Canal de texto encriptado básico
-- [ ] Historial persistente en disco
+- [ ] Historial en localstorage
 - [ ] Notificaciones desktop
 - [ ] Compartir archivos grandes con chunking
-- [ ] Canales grupales
 - [ ] Reacciones/emoji
 
 ---
