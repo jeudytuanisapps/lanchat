@@ -46,24 +46,14 @@
     // ============================================================
 
     async function init() {
-        const hostname = getHostname();
-        state.myName = hostname;
-        els.currentUser.textContent = `🖥️ ${hostname}`;
+        // Identidad y peers vienen del servidor local
+        await refreshPeers();
 
         // Conectar WebSocket al servidor local (mismo puerto)
         connectWebSocket();
 
-        // Obtener lista de peers
-        await refreshPeers();
-
         // Refrescar peers cada 5 segundos
         setInterval(refreshPeers, 5000);
-    }
-
-    function getHostname() {
-        const el = document.getElementById('currentUser');
-        if (el) return el.textContent.replace('🖥️ ', '');
-        return 'lanchat-pc';
     }
 
     // ============================================================
@@ -123,23 +113,36 @@
         } catch (e) {
             console.error('Error enviando mensaje:', e);
             showToast('⚠️ Error al enviar mensaje');
+            return null;
         }
+
+        return fullMessage;
     }
 
     function handleMessage(msg) {
-        const from = msg.from;
-        if (!state.messageHistory[from]) {
-            state.messageHistory[from] = [];
+        // Avisos del servidor (ej: no se pudo entregar al peer)
+        if (msg.type === 'delivery_error') {
+            showToast(`⚠️ No se entregó a ${msg.to}: ${msg.error}`);
+            return;
         }
-        state.messageHistory[from].push(msg);
+        if (msg.type !== 'message') return;
 
-        // Si estoy chateando con esta persona, mostrar en pantalla
-        if (state.activeChat === from) {
-            renderMessage(msg, false);
-            scrollToBottom();
-        } else {
+        // La conversación es el otro extremo: si el mensaje es mío, el destino
+        const isMine = msg.from === state.myName;
+        const chatKey = isMine ? msg.to : msg.from;
+        if (!chatKey || chatKey === '*') return;
+
+        if (!state.messageHistory[chatKey]) {
+            state.messageHistory[chatKey] = [];
+        }
+        state.messageHistory[chatKey].push(msg);
+
+        // Si estoy viendo esa conversación, mostrar en pantalla
+        if (state.activeChat === chatKey) {
+            renderMessage(msg);
+        } else if (!isMine) {
             // Notificación toast si no estoy en el chat activo
-            showToast(`📩 Nuevo mensaje de ${from}`);
+            showToast(`📩 Nuevo mensaje de ${msg.from}`);
         }
     }
 
@@ -154,14 +157,21 @@
 
             state.selfData = data.self;
 
-            // Actualizar estado de peers conocidos
-            if (data.peers) {
-                for (const peer of data.peers) {
-                    state.peers[peer.name] = peer;
-                }
+            // Identidad propia (la define el servidor por hostname)
+            if (data.self && data.self.name && data.self.name !== state.myName) {
+                state.myName = data.self.name;
+                els.currentUser.textContent = `🖥️ ${data.self.name}`;
             }
 
+            // Reemplazar la lista completa: así se van los peers caídos
+            const peers = {};
+            for (const peer of (data.peers || [])) {
+                peers[peer.name] = peer;
+            }
+            state.peers = peers;
+
             renderPeersList();
+            renderActiveChats();
         } catch (e) {
             console.error('Error obteniendo peers:', e);
         }
@@ -298,7 +308,7 @@
         scrollToBottom();
     }
 
-    function renderMessage(msg, isSent) {
+    function renderMessage(msg) {
         const html = createMessageHTML(msg);
         els.messagesContainer.insertAdjacentHTML('beforeend', html);
 
@@ -386,14 +396,15 @@
 
         // Enviar texto
         if (text) {
-            sendMessage({ to: state.activeChat, type: 'text', text: text });
+            const sent = sendMessage({ to: state.activeChat, type: 'text', text: text });
+            if (sent) handleMessage(sent);
         }
 
         // Enviar archivos
         for (let i = 0; i < pendingFiles.length; i++) {
             const fileData = pendingFiles[i];
             if (fileData.base64 && fileData.mimeType) {
-                sendMessage({
+                const sent = sendMessage({
                     to: state.activeChat,
                     type: 'image',
                     base64: fileData.base64,
@@ -401,6 +412,7 @@
                     fileName: fileData.fileName,
                     size: fileData.size
                 });
+                if (sent) handleMessage(sent);
             }
         }
 

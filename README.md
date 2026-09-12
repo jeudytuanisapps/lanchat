@@ -14,26 +14,36 @@ Chat P2P en LAN para uso personal entre computadoras. Sin registro, sin base de 
 ### Flujo de comunicación
 
 ```
-PC-A                              PC-B
- │                                │
- ├─ Anuncio UDP "hello" ───────►  │
- │  (puerto 8767)                 │
- │◄──────── Anuncio UDP "hello"──┤│
- │                                │
- ├─ WebSocket ◄────────────────► ├─ WebSocket
- │  (puerto 8766)   mensajes     │  (puerto 8766)
- │                                │
- └─ HTTP estático ──────────────>┴─ Sirve la webapp
-    (puerto 8765)                  (puerto 8765)
+PC-A                                          PC-B
+ │                                             │
+ ├─ Anuncio UDP "hello" (8767, broadcast) ──►  │
+ │◄────────── Anuncio UDP "hello" (8767) ──────┤
+ │                                             │
+ ├─ POST http://PC-B:8765/api/inbox ────────►  │   ← mensajes entre máquinas
+ │◄───────── POST http://PC-A:8765/api/inbox ──┤
+ │                                             │
+ ▼                                             ▼
+navegador local                          navegador local
+ (HTTP + WebSocket en el puerto 8765)
 ```
+
+El navegador solo habla con **su** servidor local por WebSocket (`ws://localhost:8765/ws`).
+El servidor es el que reenvía el mensaje al servidor del peer por HTTP, y ese lo
+empuja a los navegadores conectados a esa máquina.
 
 ### Protocolo de mensajes
 
 **Discovery UDP:**
 ```jsonc
-// Anuncio periódico (cada 5s)
-{ "type": "hello", "name": "<hostname>", "ip": "<local-ip>", "port": 8765, "ws_port": 8766 }
+// Anuncio periódico (cada 5s) a las direcciones de broadcast reales de la máquina
+{ "type": "hello", "name": "<hostname>", "ip": "<local-ip>", "port": 8765,
+  "ws_port": 8765, "instance_id": "<uuid>" }
 ```
+
+`instance_id` sirve para ignorar los propios anuncios (antes se filtraba por
+hostname, lo que rompía si dos máquinas se llamaban igual).
+
+Un peer que deja de anunciarse por 30s se da por desconectado y desaparece de la lista.
 
 **Mensajes WebSocket:**
 ```jsonc
@@ -82,12 +92,13 @@ python server.py
 
 **Salida esperada:**
 ```
-HTTP server: http://localhost:8765
-WebSocket server: ws://localhost:8766
+🌐 Servidor: http://localhost:8765  (WS incluido)
 
-🚀 LanChat v1.0 - Identidad: 'MI-PC'
+🚀 LanChat v1.0 - Identidad: 'MI-PC' (192.168.1.42)
    Abre http://localhost:8765 en tu navegador
 ```
+
+Una sola corrida basta. Si había otra instancia viva, la cierra sola antes de arrancar.
 
 ### 3. Abrir la webapp
 
@@ -112,11 +123,14 @@ El servidor sirve automáticamente la webapp estática desde `/webapp/`.
 
 ---
 
-## ❌ Conocido por corregir
+## ❌ Limitaciones conocidas
 
-- **Puertos fijos**: Se pueden cambiar en las constantes del server (`HTTP_PORT`, `WS_PORT`, `UDP_PORT`)
-- **Firewall**: Puede requerir abrir puertos 8765-8767 en el firewall local
+- **Puertos fijos**: Se pueden cambiar en las constantes del server (`HTTP_PORT`, `UDP_PORT`)
+- **Firewall**: Puede requerir abrir los puertos 8765 (TCP) y 8767 (UDP) en el firewall local
 - **Archivos grandes**: Limitados a ~5MB (sin chunking ni servidor de archivos)
+- **Misma subred**: El discovery es por broadcast, no cruza routers ni VLANs
+- **Sin historial**: Los mensajes viven solo en la pestaña abierta; si recargás, se pierden
+- **Sin cifrado**: El tráfico va en claro dentro de la LAN
 
 ---
 
@@ -137,4 +151,4 @@ El servidor sirve automáticamente la webapp estática desde `/webapp/`.
 - **aiohttp**: Servidor HTTP + WebSocket async
 - **Socket UDP**: Discovery sin dependencias externas
 - **Frontend**: Vanilla JS, sin frameworks ni build step
-- **Puertos**: 8765 (HTTP), 8766 (WS), 8767 (UDP)
+- **Puertos**: 8765 (HTTP + WebSocket + inbox entre peers), 8767 (UDP discovery)
