@@ -298,6 +298,62 @@ async def main():
         await server.stop()
 
 
+def _kill_existing_instances():
+    """Matar cualquier otra instancia de server.py que esté corriendo."""
+    try:
+        import socket as sock_mod
+        s = sock_mod.socket(sock_mod.AF_INET, sock_mod.SOCK_STREAM)
+        result = s.connect_ex(('127.0.0.1', HTTP_PORT))
+        s.close()
+        if result == 0:  # Puerto ocupado - hay otra instancia corriendo
+            import psutil
+            for proc in psutil.process_iter(['pid', 'cmdline']):
+                try:
+                    cmdline = ' '.join(proc.info['cmdline'] or [])
+                    if ('server.py' in cmdline) and (proc.info['pid'] != os.getpid()):
+                        proc.kill()
+                        print(f"Instancia previa detectada y cerrada (PID {proc.info['pid']})")
+                        return True
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            # Si no encontramos con psutil, intentar por puerto
+            import subprocess
+            try:
+                result = subprocess.run(
+                    ['netstat', '-ano'],
+                    capture_output=True, text=True
+                )
+                for line in result.stdout.splitlines():
+                    if f':{HTTP_PORT}' in line and 'LISTING' in line:
+                        pid = line.strip().split()[-1]
+                        subprocess.run(['taskkill', '/F', '/PID', pid], 
+                                     capture_output=True)
+                        print(f"Instancia previa detectada y cerrada (PID {pid})")
+            except Exception:
+                pass
+    except ImportError:
+        # psutil no disponible, intentar con netstat directo
+        import subprocess
+        try:
+            result = subprocess.run(
+                ['netstat', '-ano'],
+                capture_output=True, text=True, shell=False,
+                creationflags=0x08000000  # CREATE_NO_WINDOW en Windows
+            )
+            for line in (result.stdout or '').splitlines():
+                if f':{HTTP_PORT}' in line and 'LISTENING' in line:
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        pid = parts[-1]
+                        subprocess.run(['taskkill', '/F', '/PID', pid], 
+                                     capture_output=True)
+                        print(f"Instancia previa detectada y cerrada (PID {pid})")
+                        break
+        except Exception:
+            pass
+    return False
+
+
 if __name__ == '__main__':
     # Configurar UTF-8 en stdout/stderr para Windows
     import sys as _sys
@@ -313,5 +369,10 @@ if __name__ == '__main__':
         print("Instalando dependencia necesaria...")
         os.system('pip install aiohttp')
         import aiohttp
+
+    # Cerrar cualquier instancia previa
+    _kill_existing_instances()
+    
+    asyncio.run(main())
 
     asyncio.run(main())
